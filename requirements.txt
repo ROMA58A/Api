@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+mysql-connector-python
+pandas
+scikit-learn
+python-jose
+passlib[argon2]
+argon2-cffi
+numpy

@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: api-boot-project
+    env: python
+    runtime: python3.12
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: MYSQL_HOST
+        value: mysql-21b83389-uped-419c.i.aivencloud.com
+      - key: MYSQL_PORT
+        value: "14086"
+      - key: MYSQL_USER
+        value: avnadmin
+      - key: MYSQL_PASS
+        # ¡ESTO SE ELIMINA DEL CÓDIGO! 
+        # Render inyectará la variable de entorno que establezcas en su dashboard.
+      - key: MYSQL_DB
+        value: boot_project_db
+      - key: SECRET_KEY
+        value: cambia_esta_clave
