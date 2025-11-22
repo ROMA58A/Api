@@ -34,7 +34,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 # ============================================
 db_config = {
     'host': os.getenv("MYSQL_HOST", "localhost"),
-    'port': int(os.getenv("MYSQL_PORT", os.getenv("DB_PORT", 3306))),
+    'port': int(os.getenv("MYSQL_PORT", os.getenv("DB_PORT", 14086))),
     'user': os.getenv("MYSQL_USER", "root"),
     'password': os.getenv("MYSQL_PASS", ""),
     'database': os.getenv("MYSQL_DB", "app_db"),
