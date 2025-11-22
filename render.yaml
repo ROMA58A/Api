@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: api-boot-project
+    env: python
+    runtime: python3.12
+    # El comando de construcción es correcto
+    buildCommand: pip install -r requirements.txt
+    # El comando de inicio es correcto (soluciona el error anterior)
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: MYSQL_HOST
+        value: mysql-21b83389-uped-419c.i.aivencloud.com
+      - key: MYSQL_PORT
+        value: "14086"
+      - key: MYSQL_USER
+        value: avnadmin
+      - key: MYSQL_DB
+        value: boot_project_db
+      - key: AVNS_eXPbwF55iyZDRShXKCQ
+        value: una_clave_secreta_fuerte_para_jwt
+      
+      # ⚠️ IMPORTANTE: MYSQL_PASS y la contraseña real
+      # NO deben estar aquí. Deben ser inyectadas como un
+      # secreto en el panel de control de Render.
+      # Si usas un archivo 'render.yaml' (Blueprint), se recomienda usar:
+      # - key: MYSQL_PASS
+      #   generateValue: true
+      #   sync: false
+      
+      # Sin usar Blueprint, asegúrate de que exista esta variable
+      # como un SECRETO en el dashboard:
+      # key: MYSQL_PASS
+      # value: AVNS_eXPbwF55iyZDRShXKCQ (solo en el dashboard)
