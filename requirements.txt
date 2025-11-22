@@ -4,6 +4,8 @@ mysql-connector-python
 pandas
 scikit-learn
 python-jose
+python-jose[cryptography]
 passlib[argon2]
 argon2-cffi
 numpy
+python-multipart
