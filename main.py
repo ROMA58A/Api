@@ -275,6 +275,222 @@ def login(user: UserCreate):
         conn.close()
 
 # ============================================
+# 5. ENTRENAR MODELOS AL INICIAR
+# ============================================
+# Decorador de FastAPI que ejecuta esta función una vez, al levantar la API.
+@app.on_event("startup")
+def train_models():
+    """Carga datos y entrena los modelos de ML globales (TF-IDF, LogReg, KMeans, PCA)."""
+    print("Cargando datos…")
+    df = load_data_from_db()
+    
+    if df.empty:
+        print("ERROR: Sin datos")
+        return
+    
+    # Almacena el DataFrame completo y limpio en los modelos globales.
+    global_models["full_data"] = df
+
+    # --------------------
+    # LOGISTIC REGRESSION + TFIDF (Clasificación de Texto)
+    # --------------------
+    # Inicializa el vectorizador TF-IDF, que convierte texto en una matriz numérica.
+    # ngram_range=(1,2) incluye palabras individuales (unigramas) y pares de palabras (bigramas).
+    tfidf = TfidfVectorizer(ngram_range=(1,2))
+    
+    # 'X' es la matriz de características (tópicos vectorizados).
+    X = tfidf.fit_transform(df["topic"])
+    # 'y' son las etiquetas de destino (los tópicos).
+    y = df["topic"]
+    
+    # Entrena el modelo de Regresión Logística.
+    log_reg = LogisticRegression(max_iter=200) # Se aumenta max_iter para asegurar convergencia.
+    log_reg.fit(X, y)
+    
+    # Almacena los modelos entrenados globalmente.
+    global_models["tfidf_vectorizer"] = tfidf
+    global_models["log_reg"] = log_reg
+
+    # --------------------
+    # K-MEANS sobre usuarios (Segmentación)
+    # --------------------
+    # Crea una tabla pivote: Filas = user_id, Columnas = topic, Valores = conteo de consultas.
+    # Esto define el "perfil" de interés de cada usuario.
+    pivot = df.groupby(["user_id","topic"]).size().unstack(fill_value=0)
+    
+    # Asegura que haya suficientes usuarios para el clustering (ej. 3 para 3 clusters).
+    if len(pivot) >= 3:
+        # Escala los datos (normalización) para que las características (tópicos) contribuyan
+        # equitativamente al cálculo de distancias por K-Means.
+        scaler = StandardScaler()
+        scaled = scaler.fit_transform(pivot)
+        
+        # Entrena el modelo K-Means con 3 clusters.
+        kmeans = KMeans(n_clusters=3, random_state=42, n_init="auto") # n_init="auto" es una buena práctica.
+        
+        # Asigna el cluster predicho a cada usuario en la tabla pivote.
+        pivot["cluster"] = kmeans.fit_predict(scaled)
+
+        # Reducir dimensión para gráficos PCA
+        # PCA (Análisis de Componentes Principales) reduce las dimensiones del perfil del usuario
+        # (que podrían ser 4 o más: promociones, juegos, restaurantes, otros) a solo 2 (x, y).
+        # Esto permite visualizar los clusters en un gráfico 2D.
+        pca = PCA(n_components=2)
+        pivot[["x","y"]] = pca.fit_transform(scaled)
+
+        # Almacena los modelos y los datos de usuario preprocesados globalmente.
+        global_models["kmeans"] = kmeans
+        global_models["scaled_users"] = pivot.reset_index()
+        global_models["pca"] = pca
+
+    print("✔ Modelos entrenados")
+
+# ============================================
+# 6. ENDPOINTS PRINCIPALES
+# ============================================
+
+@app.get("/")
+def home():
+    """Endpoint raíz: Comprueba si la API está viva."""
+    return {"message": "API Extended ML funcionando ✔"}
+
+@app.get("/stats/overview")
+def overview():
+    """Estadísticas clave sobre el dataset."""
+    df = global_models["full_data"]
+    if df is None:
+        # Retorna un error 500 si los datos no se cargaron correctamente al inicio.
+        raise HTTPException(500, "Datos no cargados")
+    
+    total = len(df) # Número total de registros de historial.
+    
+    # Calcula el rango de días en el dataset. Usa 'or 1' para evitar división por cero si solo hay un día.
+    dias = (df["timestamp"].max() - df["timestamp"].min()).days or 1
+    
+    # Calcula el promedio de consultas por día.
+    promedio = round(total / dias,1)
+    
+    # Encuentra la categoría (tópico) con más registros.
+    top = df["topic"].value_counts().idxmax()
+    
+    return {"total_records": total, "avg_per_day": promedio, "top_category": top}
+
+@app.get("/stats/hourly")
+def hourly():
+    """Distribución de consultas por hora del día (patrones horarios)."""
+    df = global_models["full_data"]
+    
+    # Agrupa por la columna 'hora' (0 a 23) y cuenta los registros.
+    hourly = df.groupby("hora").size()
+    # Asegura que haya 24 horas (0 a 23) en el índice, rellenando con 0 si no hay datos para una hora.
+    hourly = hourly.reindex(range(24),fill_value=0)
+    
+    # Formatea las horas como "HH:00" para un gráfico.
+    hours = [f"{h:02d}:00" for h in hourly.index]
+    
+    return {"hours": hours, "counts": hourly.tolist()}
+
+@app.get("/users/clusters")
+def clusters():
+    """Retorna el conteo de usuarios por cada cluster K-Means, con nombres basados en el tópico dominante."""
+    users = global_models["scaled_users"]
+    if users is None:
+        raise HTTPException(500,"KMeans no cargado")
+        
+    # Cuenta la cantidad de usuarios en cada cluster (ordenado por índice de cluster).
+    counts = users["cluster"].value_counts().sort_index()
+
+    cluster_names_map = {}
+    # Itera sobre cada cluster para encontrar su nombre dominante.
+    for c in counts.index:
+        # Filtra los usuarios del cluster actual.
+        temp = users[users["cluster"]==c]
+        # Suma los conteos de tópicos y encuentra el tópico más alto (dominante) en ese cluster.
+        top_topic = temp.drop(columns=["user_id","cluster","x","y"]).sum().idxmax()
+        # Asigna un nombre descriptivo al cluster.
+        cluster_names_map[c] = f"Cluster: {top_topic.capitalize()}"
+    
+    # Genera la lista final de nombres de cluster.
+    cluster_names = [cluster_names_map.get(i,f"Cluster {i}") for i in counts.index]
+    
+    return {"cluster_names": cluster_names, "counts": counts.tolist()}
+
+@app.get("/users/clusters/graph")
+def clusters_graph():
+    """Retorna los puntos de datos (coordenadas PCA) de los usuarios para visualización."""
+    users = global_models["scaled_users"]
+    if users is None:
+        raise HTTPException(500,"KMeans no cargado")
+        
+    data = []
+    # Itera sobre cada cluster único.
+    for c in users["cluster"].unique():
+        cluster_data = users[users["cluster"]==c]
+        # Extrae las coordenadas X e Y (componentes principales) del PCA.
+        points = cluster_data[["x","y"]].values.tolist()
+        # Agrega el cluster y sus puntos a la lista.
+        data.append({"cluster": int(c), "points": points})
+        
+    return {"clusters_pca": data}
+
+# ============================================
+# 7. RECOMENDACIONES POR USUARIO (Basado en contenido y K-Means)
+# ============================================
+@app.get("/users/{user_id}/recommend")
+def recommend(user_id: int):
+    """Ofrece una recomendación basada en el tópico más dominante del usuario."""
+    df = global_models["full_data"]
+    users = global_models["scaled_users"]
+    
+    if users is None:
+        raise HTTPException(500,"KMeans no cargado")
+        
+    # Validación: Comprueba si el user_id existe en el dataset de usuarios.
+    if user_id not in users["user_id"].values:
+        raise HTTPException(404,"Usuario no encontrado")
+        
+    # Conteo de tópicos para el usuario específico.
+    user_topics = df[df["user_id"]==user_id]["topic"].value_counts()
+    
+    # Identifica el tópico que el usuario ha consultado más veces.
+    most_topic = user_topics.idxmax()
+    
+    # Obtiene una lista de todos los tópicos disponibles.
+    all_topics = df["topic"].unique().tolist()
+    
+    # Genera la recomendación: cualquier tópico que NO sea el dominante del usuario.
+    recommendation = [t for t in all_topics if t != most_topic]
+    
+    return {"user_id": user_id, "top_topic": most_topic, "recommendation": recommendation}
+
+# ============================================
+# 8. PREDICCIÓN DE TEXTO (Clasificación)
+# ============================================
+# Define el esquema de datos de entrada para el endpoint POST.
+# Esto asegura que el cuerpo de la solicitud JSON contenga el campo 'text' (string).
+class Query(BaseModel):
+    text: str
+
+@app.post("/predict")
+def predict(q: Query):
+    """Clasifica el texto de una nueva consulta en uno de los tópicos (promociones, juegos, etc.)."""
+    tfidf = global_models["tfidf_vectorizer"]
+    log_reg = global_models["log_reg"]
+    
+    # Usa el vectorizador TF-IDF entrenado para transformar el nuevo texto de entrada.
+    # El modelo espera un vector numérico, no el texto plano.
+    X = tfidf.transform([q.text])
+    
+    # Realiza la predicción del tópico más probable.
+    pred = log_reg.predict(X)[0]
+    
+    # Obtiene las probabilidades de que el texto pertenezca a cada clase/tópico.
+    proba = log_reg.predict_proba(X)[0]
+    
+    # Retorna el resultado incluyendo el texto, el tópico predicho y las probabilidades para todas las clases.
+    return {"texto": q.text, "tema_predicho": pred, "probabilidades": dict(zip(log_reg.classes_, proba))}
+
+# ============================================
 # 10. ENDPOINT nuevo: registrar historial
 # ============================================
 @app.post("/history/record")
