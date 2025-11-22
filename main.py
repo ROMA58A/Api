@@ -33,13 +33,14 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 # 2. CONFIGURACIÓN DE MYSQL (variables en Render)
 # ============================================
 db_config = {
-    'host': 'mysql-21b83389-uped-419c.i.aivencloud.com',
-    'port': 14086, # Asegúrate de que este valor sea un entero, no un string
-    'user': 'avnadmin',
-    'password': 'AVNS_eXPbwF55iyZDRShXKCQ',
-    'database': 'boot_project_db',
-    'autocommit': False,
-    'raise_on_warnings': True,
+    'host': 'mysql-21b83389-uped-419c.i.aivencloud.com',
+    'port': 14086,
+    'user': 'avnadmin',
+    'password': 'AVNS_eXPbwF55iyZDRShXKCQ',
+    'database': 'boot_project_db',
+    'autocommit': False,
+    'raise_on_warnings': True,
+}
 # ============================================
 # 3. CREACIÓN DE API + CONFIG CORS
 # ============================================
